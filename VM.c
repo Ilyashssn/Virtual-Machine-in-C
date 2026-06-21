@@ -27,10 +27,7 @@ uint16_t high,low,adress,mod;
 #define stop 0xFF
 
 //MEMORY : CODE / STACK SEGMENT
-uint8_t memory[65536]={0x01,0x01,0, //load r1,1
-                       0x01,0x02,15,//load r2,15
-                       0x03,0x82,0x01,//sub r2,[1]
-                       0xFF};          //HALT
+uint8_t memory[65536];
 
 
 
@@ -42,7 +39,7 @@ int CF,ZF;
 
 //RAM
 
-uint8_t RAM[256]={7,10,255};
+uint8_t RAM[256];
 
 //PORGRAM COUNTER
 uint16_t PC=0;
@@ -70,8 +67,19 @@ void bug(){
 }
 
 
-
 int main() {
+
+
+   FILE *file = fopen("C:\\Users\\acer\\Desktop\\VM\\binary_code_example", "rb"); 
+    
+    if (file == NULL) {
+        bug();
+        return 1;
+    }
+     size_t octets_lus = fread(memory, sizeof(uint8_t), 65536, file);
+     fclose(file);
+
+     printf("[VM] %zu bytes succesfully loaded\n", octets_lus);
     while(running==1){
        opcode=memory[PC];
        PC++;
@@ -306,6 +314,6 @@ int main() {
     }
     
 
-   printf("%d",registers[2]);
+   
     return 0;
 }
