@@ -24,6 +24,7 @@ uint16_t high,low,adress,mod;
 #define je 0x0D
 #define jl 0x0E
 #define jg 0x0F
+#define store 0x10
 #define stop 0xFF
 
 //MEMORY : CODE / STACK SEGMENT
@@ -298,7 +299,16 @@ int main() {
             PC+=2;
             break;
            }
-
+         
+        case store:
+             adress=memory[PC];
+             PC++;
+             mod = memory[PC] & 0x80;
+             mod = mod >> 7;
+             r1= memory[PC] & 0x7F;
+            RAM[adress]=(mod==0) ? r1:registers[r1];
+            PC++;
+            break;
         case stop:
            running=0;
            printf("RUNNED SUCCESFULLY\n");
