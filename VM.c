@@ -68,11 +68,21 @@ void bug(){
 
 }
 
+void print_state() {
+   printf("R0=%u R1=%u R2=%u R3=%u LR=%u AR=%u\n",
+          registers[0], registers[1], registers[2],
+          registers[3], registers[4], registers[5]);
+   printf("CF=%d ZF=%d PC=%u SP=%u\n", CF, ZF, PC, SP);
+}
 
-int main() {
 
+int main(int argc, char *argv[]) {
 
-   FILE *file = fopen("C:\\Users\\acer\\Desktop\\VM\\binary_code_example", "rb"); 
+   if(argc!=2){
+      printf("ERROR: No input file provided\n");
+      return 1;
+   }
+FILE *file = fopen(argv[1], "rb"); 
     
     if (file == NULL) {
         bug();
@@ -319,9 +329,11 @@ int main() {
                PC=jump();
                registers[4]--;
             }
+            break;
         case stop:
            running=0;
-           printf("RUNNED SUCCESFULLY\n");
+           printf("RAN SUCCESFULLY\n");
+           print_state();
            break;
         
         
