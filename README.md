@@ -39,6 +39,7 @@ On `STOP`, the VM prints register and flag state via `print_state()`.
 | Address width | 16 bits |
 | Endianness (jump addresses) | Big-endian |
 | Integer literals in assembler | Decimal or hex (`0x` prefix) |
+| Instruction count | 23 (`0x01`–`0x16`, plus `0xFF`) |
 
 ---
 
@@ -104,7 +105,7 @@ Two flags, stored as integers (`0` or `1`):
 
 | Flag | Name | Meaning |
 |------|------|---------|
-| `CF` | Carry | Set by arithmetic/compare as defined per instruction |
+| `CF` | Carry | Set by arithmetic, shifts, and compare as defined per instruction |
 | `ZF` | Zero | Set when result equals zero (or operands equal for `CMP`) |
 
 Initial state: `CF = 0`, `ZF = 0`.
@@ -121,7 +122,7 @@ Each iteration:
 4. Update flags where applicable
 5. Repeat until `running = 0` (`STOP`, fault, or invalid opcode)
 
-Invalid opcode → print `BUG HAPPENED`, halt.
+Invalid opcode or invalid addressing mode (modes 4–7 on three-operand instructions) → print `BUG HAPPENED`, halt.
 
 ---
 
@@ -138,14 +139,16 @@ Byte 2 (at PC+1): address_low  = target & 0xFF
 target = address_low | (address_high << 8)
 ```
 
-### 7.2 Three-operand descriptor (LOAD, ADD, SUB, AND)
+### 7.2 Three-operand descriptor
+
+Used by `LOAD`, `ADD`, `SUB`, `AND`, `OR`, `XOR`.
 
 ```text
-Byte 1 (at PC): descriptor
+Byte 0: opcode
+Byte 1: descriptor
   bits 7–6 : addressing mode (0–3)
   bits 5–0 : destination register index
-
-Byte 2 (at PC+1): source operand (encoding depends on mode)
+Byte 2: source operand (encoding depends on mode)
 ```
 
 ```text
@@ -169,11 +172,14 @@ LOAD R0, 42          ; mode 0
 ADD  R1, R2          ; mode 1
 SUB  R2, [0x10]      ; mode 2
 AND  R0, [R1]        ; mode 3
+OR   R1, 0xF0        ; same encoding family
+XOR  R2, R3          ; same encoding family
 ```
 
 ### 7.3 STORE operand byte
 
 ```text
+Byte 0: 0x10
 Byte 1: RAM address (0–255)
 Byte 2: source descriptor
   bit 7    : 0 = immediate, 1 = register
@@ -183,6 +189,32 @@ Byte 2: source descriptor
 ```text
 STORE 0x20, 42       ; immediate 42 → RAM[0x20]
 STORE 0x20, R1       ; registers[R1] → RAM[0x20]
+```
+
+### 7.4 Shift operand format
+
+Used by `SHR` and `SHL`.
+
+```text
+Byte 0: opcode (0x15 or 0x16)
+Byte 1: register index
+Byte 2: shift count (0–255)
+```
+
+```text
+SHR R0, 3            ; shift R0 right by 3
+SHL R1, 1            ; shift R1 left by 1
+```
+
+When `count == 0`, no shifts are performed. `ZF` is still updated; `CF` is unchanged.
+
+### 7.5 Single-register format
+
+Used by `MUL`, `PUSH`, `POP`.
+
+```text
+Byte 0: opcode
+Byte 1: register index
 ```
 
 ---
@@ -211,11 +243,17 @@ STORE 0x20, R1       ; registers[R1] → RAM[0x20]
 | `0x10` | `STORE` | 3 | — |
 | `0x11` | `LOOP` | 3 | — |
 | `0x12` | `AND` | 3 | CF, ZF |
+| `0x13` | `OR` | 3 | CF, ZF |
+| `0x14` | `XOR` | 3 | CF, ZF |
+| `0x15` | `SHR` | 3 | CF, ZF |
+| `0x16` | `SHL` | 3 | CF, ZF |
 | `0xFF` | `STOP` | 1 | — |
 
 ---
 
-### `LOAD` — `0x01`
+### Data movement and arithmetic
+
+#### `LOAD` — `0x01`
 
 **Syntax:** `LOAD dest, source`  
 **Encoding:** `[0x01] [mode<<6 | dest] [operand]`
@@ -227,7 +265,7 @@ Load source into destination register. Source resolved by addressing mode (§7.2
 
 ---
 
-### `ADD` — `0x02`
+#### `ADD` — `0x02`
 
 **Syntax:** `ADD dest, source`  
 **Encoding:** `[0x02] [mode<<6 | dest] [operand]`
@@ -237,9 +275,11 @@ Load source into destination register. Source resolved by addressing mode (§7.2
 - `CF = 1` if sum exceeds 255 (computed on 16-bit intermediate before truncation)
 - `ZF = 1` if result is 0
 
+Invalid addressing mode → `BUG HAPPENED`.
+
 ---
 
-### `SUB` — `0x03`
+#### `SUB` — `0x03`
 
 **Syntax:** `SUB dest, source`  
 **Encoding:** `[0x03] [mode<<6 | dest] [operand]`
@@ -249,21 +289,11 @@ Load source into destination register. Source resolved by addressing mode (§7.2
 - `CF = 1` if `dest < source` (unsigned borrow), evaluated **before** subtraction
 - `ZF = 1` if result is 0
 
----
-
-### `AND` — `0x12`
-
-**Syntax:** `AND dest, source`  
-**Encoding:** `[0x12] [mode<<6 | dest] [operand]`
-
-**Operation:** `dest ← dest & source`  
-**Flags:**
-- `CF = 0`
-- `ZF = 1` if result is 0
+Invalid addressing mode → `BUG HAPPENED`.
 
 ---
 
-### `MUL` — `0x05`
+#### `MUL` — `0x05`
 
 **Syntax:** `MUL Rn`  
 **Encoding:** `[0x05] [n]`
@@ -276,7 +306,71 @@ Load source into destination register. Source resolved by addressing mode (§7.2
 
 ---
 
-### `CMP` — `0x0C`
+### Bitwise instructions
+
+All use the three-operand descriptor (§7.2). Invalid mode → `BUG HAPPENED`.
+
+#### `AND` — `0x12`
+
+**Syntax:** `AND dest, source`  
+**Encoding:** `[0x12] [mode<<6 | dest] [operand]`
+
+**Operation:** `dest ← dest & source`  
+**Flags:** `CF = 0`; `ZF = 1` if result is 0
+
+---
+
+#### `OR` — `0x13`
+
+**Syntax:** `OR dest, source`  
+**Encoding:** `[0x13] [mode<<6 | dest] [operand]`
+
+**Operation:** `dest ← dest | source`  
+**Flags:** `CF = 0`; `ZF = 1` if result is 0
+
+---
+
+#### `XOR` — `0x14`
+
+**Syntax:** `XOR dest, source`  
+**Encoding:** `[0x14] [mode<<6 | dest] [operand]`
+
+**Operation:** `dest ← dest ^ source`  
+**Flags:** `CF = 0`; `ZF = 1` if result is 0
+
+---
+
+### Shift instructions
+
+Format per §7.4. Shifts execute `count` times in a loop.
+
+#### `SHR` — `0x15`
+
+**Syntax:** `SHR Rn, count`  
+**Encoding:** `[0x15] [n] [count]`
+
+**Operation:** `registers[n] ← registers[n] >> 1` repeated `count` times  
+**Flags (per iteration, last iteration wins):**
+- `CF` = bit shifted out (LSB, `& 0x01`)
+- After loop: `ZF = 1` if result is 0
+
+---
+
+#### `SHL` — `0x16`
+
+**Syntax:** `SHL Rn, count`  
+**Encoding:** `[0x16] [n] [count]`
+
+**Operation:** `registers[n] ← registers[n] << 1` repeated `count` times  
+**Flags (per iteration, last iteration wins):**
+- `CF` = bit shifted out (MSB, `& 0x80`)
+- After loop: `ZF = 1` if result is 0
+
+---
+
+### Compare and memory
+
+#### `CMP` — `0x0C`
 
 **Syntax:** `CMP Ra, Rb`  
 **Encoding:** `[0x0C] [a] [b]`
@@ -291,7 +385,7 @@ Compare `registers[a]` to `registers[b]` (no register write).
 
 ---
 
-### `STORE` — `0x10`
+#### `STORE` — `0x10`
 
 **Syntax:** `STORE addr, source`  
 **Encoding:** `[0x10] [addr] [source_byte]`
@@ -302,7 +396,9 @@ Write to `RAM[addr]`. Source is immediate (0–127) or register per §7.3.
 
 ---
 
-### `PUSH` — `0x06`
+### Stack
+
+#### `PUSH` — `0x06`
 
 **Syntax:** `PUSH Rn`  
 **Encoding:** `[0x06] [n]`
@@ -311,7 +407,7 @@ Write to `RAM[addr]`. Source is immediate (0–127) or register per §7.3.
 
 ---
 
-### `POP` — `0x07`
+#### `POP` — `0x07`
 
 **Syntax:** `POP Rn`  
 **Encoding:** `[0x07] [n]`
@@ -320,7 +416,9 @@ Write to `RAM[addr]`. Source is immediate (0–127) or register per §7.3.
 
 ---
 
-### Jump instructions
+### Control flow
+
+#### Jump instructions
 
 All jumps: **3 bytes** — `[opcode] [addr_high] [addr_low]`
 
@@ -342,7 +440,7 @@ If condition true: `PC ← target`.
 
 ---
 
-### `LOOP` — `0x11`
+#### `LOOP` — `0x11`
 
 **Syntax:** `LOOP label`  
 **Encoding:** `[0x11] [addr_high] [addr_low]`
@@ -354,11 +452,9 @@ Uses **LR (`registers[4]`)** as counter:
 | `LR == 0` | `PC ← PC + 2` (fall through) |
 | `LR != 0` | `PC ← target`; `LR ← LR - 1` |
 
-Equivalent to: decrement loop counter and jump if non-zero, without explicit `SUB`/`JNZ`.
-
 ---
 
-### `STOP` — `0xFF`
+#### `STOP` — `0xFF`
 
 **Syntax:** `STOP`  
 **Encoding:** `[0xFF]`
@@ -380,7 +476,7 @@ Two-pass assembly: pass 1 resolves label addresses, pass 2 emits bytecode.
 ### 9.2 Source format
 
 - One instruction per line
-- `#`-style comments via `;` (text after `;` ignored)
+- Comments: text after `;` is ignored
 - Commas optional: `LOAD R0, 1` = `LOAD R0 1`
 - Case insensitive
 - Labels: `name:` at start of line; address = byte offset of next instruction
@@ -393,12 +489,15 @@ START:
 
 ### 9.3 Supported mnemonics
 
-All opcodes in §8. Register names: `R0`, `R1`, `R2`, `R3`, `LR`, `AR`.
+`LOAD`, `ADD`, `SUB`, `AND`, `OR`, `XOR`, `MUL`, `SHR`, `SHL`, `STORE`, `CMP`, `PUSH`, `POP`, `JMP`, `JZ`, `JNZ`, `JC`, `JNC`, `JE`, `JL`, `JG`, `LOOP`, `STOP`
+
+Register names: `R0`, `R1`, `R2`, `R3`, `LR`, `AR`.
 
 ### 9.4 Assembler limits
 
-- Immediate values: `0–255` (LOAD/ADD/SUB/AND)
+- Immediate values: `0–255` (LOAD/ADD/SUB/AND/OR/XOR)
 - STORE immediates: `0–127`
+- Shift counts: `0–255` (SHR/SHL)
 - RAM addresses: `0–255`
 - Jump targets: `0–65535` or label
 - No macros, includes, or equates
@@ -430,7 +529,9 @@ CF=... ZF=... PC=... SP=...
 
 ---
 
-## 11. Worked Example — Fibonacci (N = 7)
+## 11. Worked Examples
+
+### 11.1 Fibonacci (N = 7)
 
 **Source** (`assembly_code_example1.txt`):
 
@@ -465,6 +566,37 @@ STOP
 
 ---
 
+### 11.2 Bitwise mask and shift
+
+```assembly
+LOAD R0, 37
+AND R0, 0x0F
+SHR R0, 1
+STOP
+```
+
+**Expected final state:** `R0 = 2` (37 & 15 = 5; 5 >> 1 = 2)
+
+**Bytecode:** `01 00 25  12 00 0F  15 00 01  FF`
+
+---
+
+### 11.3 Loop with `LOOP` instruction
+
+```assembly
+LOAD LR, 3
+LOAD R0, 0
+LOAD R1, 1
+LOOP_BODY:
+ADD R0, R1
+LOOP LOOP_BODY
+STOP
+```
+
+After 3 iterations of `ADD R0, R1` starting from `R0=0`, `R1=1`: `R0 = 3`, `LR = 0`.
+
+---
+
 ## 12. File Layout
 
 ```text
@@ -487,3 +619,6 @@ VM/
 - **LOOP / LR:** `LOOP` hard-wires counter to register index 4 (`LR`).
 - **JE vs JZ:** Identical branch condition; both test `ZF == 1`.
 - **JG semantics:** "Greater" means unsigned greater (`CF=0` and `ZF=0` after `CMP`).
+- **Logical ops:** `AND`, `OR`, `XOR` always clear `CF`.
+- **Shifts:** `SHR`/`SHL` with `count=0` perform no shifts; `CF` is preserved, `ZF` is updated from current register value.
+- **Invalid modes:** `LOAD`, `ADD`, `SUB`, `AND`, `OR`, `XOR` trap on addressing mode 4–7.

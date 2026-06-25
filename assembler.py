@@ -4,7 +4,8 @@ OPCODES = {
     "LOAD": 0x01, "ADD": 0x02, "SUB": 0x03, "JMP": 0x04, "MUL": 0x05,
     "PUSH": 0x06, "POP": 0x07, "JZ": 0x08, "JNZ": 0x09, "JC": 0x0A,
     "JNC": 0x0B, "CMP": 0x0C, "JE": 0x0D, "JL": 0x0E, "JG": 0x0F,
-    "STORE": 0x10, "LOOP": 0x11, "STOP": 0xFF,
+    "STORE": 0x10, "LOOP": 0x11, "AND": 0x12, "OR": 0x13, "XOR": 0x14,
+    "SHR": 0x15, "SHL": 0x16, "STOP": 0xFF,
 }
 
 REGISTERS = {
@@ -13,13 +14,15 @@ REGISTERS = {
 
 INSTRUCTION_SIZES = {
     "LOAD": 3, "ADD": 3, "SUB": 3, "STORE": 3,
+    "AND": 3, "OR": 3, "XOR": 3, "SHR": 3, "SHL": 3,
     "JMP": 3, "JZ": 3, "JNZ": 3, "JC": 3, "JNC": 3,
     "CMP": 3, "JE": 3, "JL": 3, "JG": 3, "LOOP": 3,
     "MUL": 2, "PUSH": 2, "POP": 2,
     "STOP": 1,
 }
 
-THREE_OPERAND = {"LOAD", "ADD", "SUB"}
+THREE_OPERAND = {"LOAD", "ADD", "SUB", "AND", "OR", "XOR"}
+SHIFT_OPS = {"SHR", "SHL"}
 JUMP_OPS = {"JMP", "JZ", "JNZ", "JC", "JNC", "JE", "JL", "JG", "LOOP"}
 SINGLE_REGISTER = {"MUL", "PUSH", "POP"}
 
@@ -68,6 +71,13 @@ def parse_source_operand(arg):
     if not 0 <= value <= 255:
         raise ValueError(f"Immediate value {value} out of bounds (0-255)")
     return 0, value
+
+
+def parse_shift_count(arg):
+    value = parse_int(arg)
+    if not 0 <= value <= 255:
+        raise ValueError(f"Shift count {value} out of bounds (0-255)")
+    return value
 
 
 def parse_store_source(arg):
@@ -156,6 +166,13 @@ def encode_instruction(cmd, tokens, labels):
             raise SyntaxError(f"Instruction {cmd} requires exactly 1 register")
         reg = get_register(tokens[1])
         return bytes([OPCODES[cmd], reg])
+
+    if cmd in SHIFT_OPS:
+        if len(tokens) != 3:
+            raise SyntaxError(f"Instruction {cmd} requires exactly 2 arguments")
+        reg = get_register(tokens[1])
+        count = parse_shift_count(tokens[2])
+        return bytes([OPCODES[cmd], reg, count])
 
     if cmd == "STORE":
         if len(tokens) != 3:

@@ -5,7 +5,7 @@
 uint8_t r1,r2;
 uint16_t result;
 uint8_t opcode;
-uint16_t high,low,adress,mod;
+uint16_t high,low,adress,mod,count;
 
 
 //OPCODES
@@ -154,6 +154,9 @@ FILE *file = fopen(argv[1], "rb");
                   result=(uint16_t)registers[r1]+(uint16_t)RAM[registers[r2]];
                   registers[r1]+=RAM[registers[r2]];
                   break;
+                default :
+                    bug();
+                    break;
             }
           CF=(result>255) ? 1:0;
           ZF=(registers[r1]==0) ? 1:0;
@@ -189,6 +192,9 @@ FILE *file = fopen(argv[1], "rb");
                   CF=(registers[r1]<RAM[registers[r2]]) ? 1:0;
                   registers[r1]-=RAM[registers[r2]];
                   break;
+                default :
+                    bug();
+                    break;
             }
           
           ZF=(registers[r1]==0) ? 1:0;
@@ -359,6 +365,9 @@ FILE *file = fopen(argv[1], "rb");
                   r2=memory[PC];
                   registers[r1]|=RAM[registers[r2]];
                   break;
+                default :
+                    bug();
+                    break;
             }
           CF=0;
           ZF=(registers[r1]==0) ? 1:0;
@@ -389,8 +398,11 @@ FILE *file = fopen(argv[1], "rb");
                   break;
                case 3:
                   r2=memory[PC];
-                  registers[r1]+=RAM[registers[r2]];
+                  registers[r1]&=RAM[registers[r2]];
                   break;
+                default :
+                    bug();
+                    break;
             }
           CF=0;
           ZF=(registers[r1]==0) ? 1:0;
@@ -400,7 +412,7 @@ FILE *file = fopen(argv[1], "rb");
       case shr:
          r1 = memory[PC];
          PC++;
-       int count = memory[PC];          
+        count = memory[PC];          
        while (count > 0) {
         CF = registers[r1] & 0x01;
         registers[r1] >>= 1;
@@ -413,7 +425,7 @@ FILE *file = fopen(argv[1], "rb");
       case shl:
          r1 = memory[PC];
          PC++;
-       int count = memory[PC];          
+        count = memory[PC];          
        while (count > 0) {
         CF = registers[r1] & 0x80;
         registers[r1] <<= 1;
@@ -422,6 +434,37 @@ FILE *file = fopen(argv[1], "rb");
          ZF = (registers[r1] == 0);
         PC++;
         break;
+
+        case xor :
+            adress=memory[PC];
+            mod = adress & 0xC0;
+            mod = mod >> 6 ;
+            r1= adress & 0x3F;
+            PC++;
+            switch(mod){
+               case 0:
+                   registers[r1]^=memory[PC];
+                   break;
+               case 1:
+                   r2=memory[PC];
+                   
+                   registers[r1]^=registers[r2];
+                   break;
+               case 2:
+                  registers[r1]^=RAM[memory[PC]];
+                  break;
+               case 3:
+                  r2=memory[PC];
+                  registers[r1]^=RAM[registers[r2]];
+                  break;
+                default :
+                    bug();
+                    break;
+            }
+          CF=0;
+          ZF=(registers[r1]==0) ? 1:0;
+          PC++;        
+           break;
 
          
          
