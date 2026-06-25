@@ -26,6 +26,11 @@ uint16_t high,low,adress,mod;
 #define jg 0x0F
 #define store 0x10
 #define loop 0x11
+#define and 0x12
+#define or 0x13
+#define xor 0x14
+#define shr 0x15
+#define shl 0x16
 #define stop 0xFF
 
 //MEMORY : CODE / STACK SEGMENT
@@ -77,7 +82,7 @@ void print_state() {
 
 
 int main(int argc, char *argv[]) {
-
+//INPUT FILE
    if(argc!=2){
       printf("ERROR: No input file provided\n");
       return 1;
@@ -89,9 +94,10 @@ FILE *file = fopen(argv[1], "rb");
         return 1;
     }
      size_t octets_lus = fread(memory, sizeof(uint8_t), 65536, file);
-     fclose(file);
+     fclose(file);  
+   printf("[VM] %zu bytes succesfully loaded\n", octets_lus);
 
-     printf("[VM] %zu bytes succesfully loaded\n", octets_lus);
+   //CPU
     while(running==1){
        opcode=memory[PC];
        PC++;
@@ -330,11 +336,103 @@ FILE *file = fopen(argv[1], "rb");
                registers[4]--;
             }
             break;
+
+         case or :
+            adress=memory[PC];
+            mod = adress & 0xC0;
+            mod = mod >> 6 ;
+            r1= adress & 0x3F;
+            PC++;
+            switch(mod){
+               case 0:
+                   registers[r1]|=memory[PC];
+                   break;
+               case 1:
+                   r2=memory[PC];
+                   
+                   registers[r1]|=registers[r2];
+                   break;
+               case 2:
+                  registers[r1]|=RAM[memory[PC]];
+                  break;
+               case 3:
+                  r2=memory[PC];
+                  registers[r1]|=RAM[registers[r2]];
+                  break;
+            }
+          CF=0;
+          ZF=(registers[r1]==0) ? 1:0;
+          PC++;
+                   
+            
+
+            
+           break;
+
+       case and :
+            adress=memory[PC];
+            mod = adress & 0xC0;
+            mod = mod >> 6 ;
+            r1= adress & 0x3F;
+            PC++;
+            switch(mod){
+               case 0:
+                   registers[r1]&=memory[PC];
+                   break;
+               case 1:
+                   r2=memory[PC];
+                   
+                   registers[r1]&=registers[r2];
+                   break;
+               case 2:
+                  registers[r1]&=RAM[memory[PC]];
+                  break;
+               case 3:
+                  r2=memory[PC];
+                  registers[r1]+=RAM[registers[r2]];
+                  break;
+            }
+          CF=0;
+          ZF=(registers[r1]==0) ? 1:0;
+          PC++;        
+           break;
+
+      case shr:
+         r1 = memory[PC];
+         PC++;
+       int count = memory[PC];          
+       while (count > 0) {
+        CF = registers[r1] & 0x01;
+        registers[r1] >>= 1;
+        count--;
+                        }
+         ZF = (registers[r1] == 0);
+        PC++;
+        break;
+
+      case shl:
+         r1 = memory[PC];
+         PC++;
+       int count = memory[PC];          
+       while (count > 0) {
+        CF = registers[r1] & 0x80;
+        registers[r1] <<= 1;
+        count--;
+                        }
+         ZF = (registers[r1] == 0);
+        PC++;
+        break;
+
+         
+         
+          
         case stop:
            running=0;
            printf("RAN SUCCESFULLY\n");
            print_state();
            break;
+
+         
         
         
 
